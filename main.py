@@ -3,6 +3,17 @@ import numpy as np
 from matplotlib import pyplot as plt
 import os
 from skimage.transform import resize
+#import TiffImagePlugin
+
+#Autocropping function
+def auto_crop(img, translation):
+    '''
+    We know that the image is the same size across all channels,
+    meaning we can crop the edges based on the parts that dont overlap
+    '''
+    xBounds = [min(translation[0][0], translation[1][0]), max(translation[0][0], translation[1][0])]
+    yBounds = [min(translation[0][1], translation[1][1]), max(translation[0][1], translation[1][1])]
+    return img[:, yBounds[0]:yBounds[1], xBounds[0]:xBounds[1]]
 # Function to retrieve r, g, b planes from Prokudin-Gorskii glass plate images
 def read_strip(path):
     image = plt.imread(path) # read the input image
@@ -60,8 +71,12 @@ if __name__ == '__main__':
     #imageName = 'turkmen.tif'
     outDir = './Results/'
     #Specifying the number of levels in the image pyramid
-    levels = 4 
+    levels = 5
     
+    #output
+    finalImage = '\0'
+    translation = []
+
     for imageName in os.listdir(imageDir):
         # Get r, g, b channels from image strip
         r, g, b = read_strip(imageDir + imageName)
@@ -69,6 +84,7 @@ if __name__ == '__main__':
         #Assignment 1, modifying the jpg files
         if os.path.splitext(imageName)[-1] == '.jpg':
             continue
+            #continue
             # Calculate shift
             rShift = find_shift(r, b)
             gShift = find_shift(g, b)
@@ -79,35 +95,38 @@ if __name__ == '__main__':
             finalG = circ_shift(g, gShift)
             finalR = circ_shift(r, rShift)
 
+            translation = [rShift, gShift]
             # Putting together the aligned channels to form the color image
             finalImage = np.stack((finalR, finalG, finalB), axis = 2)
 
             # Writing the image to the Results folder
-            plt.imsave(outDir + imageName[:-4] + '.jpg', finalImage)
+            #plt.imsave(outDir + imageName[:-4] + '.jpg', finalImage)
         
         elif os.path.splitext(imageName)[-1] == '.tif':
+            #continue
             #Will need to scale downm
             #Loop Parameters
-            translation = [np.asarray([0,0]), np.asarray([0,0])] #rShift, gShift
+            translation = np.zeros([2,2], int) #[[0,0], [0,0]] #rShift, gShift
             baseImg = np.asarray([r,g,b]) #Base Data
             shape = np.asarray([3,(baseImg.shape[1]/(2**(levels-1))), (baseImg.shape[2]/(2**(levels-1)))]) #Size of smallest level
 
             #get it in a range from 4->1
             #for scale in reversed(range(levels+1)[1:]):
-            for step in range(levels-1):
+            for step in (range(levels)[1:]):
                 imScaled = resize(baseImg, shape.astype(int)) #cast to int for odd numbers
                 rS, gS, bS = imScaled
                 rS = circ_shift(rS, translation[0])
                 gS = circ_shift(gS, translation[1])
                 
                 #Calculate Shift
-                rShift = np.asarray(find_shift(rS, bS))
-                gShift = np.asarray(find_shift(gS, bS))
-                translation[0]=translation[0]+rShift
-                translation[1]=translation[1]+gShift
+                #print(int(25/step))
+                #We do not need to continue to search the same space as it gets larger
+                rShift = np.asarray(find_shift(rS, bS, int(20/step), int(20/step)))
+                gShift = np.asarray(find_shift(gS, bS, int(20/step), int(20/step)))
+                translation = np.add(translation, [rShift, gShift])
                 # translation = np.asarray([[translation[0]+find_shift(rS, bS)],[translation[1]+find_shift(gS, bS)]])
-                print(translation)
-                print(imageName, rS.shape, "GShift: ",gShift, "rShift: ", rShift)
+                print("###########################################################")
+                print(imageName, rS.shape, "GShift: ",gShift, "rShift: ", rShift, "translation: \n", translation)
 
                 #For each iteration, the area of the pyramid doubles
                 translation=translation*2
@@ -119,4 +138,5 @@ if __name__ == '__main__':
             finalR = circ_shift(baseImg[0], translation[0])
             finalImage = np.stack((finalR, finalG, finalB), axis = 2)
 
-            plt.imsave(outDir + imageName[:-4] + '.tif', finalImage)
+        auto_crop(finalImage, translation)
+        plt.imsave(outDir + imageName[:-4] + '.tiff', finalImage)
