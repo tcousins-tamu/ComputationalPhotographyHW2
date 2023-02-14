@@ -14,6 +14,39 @@ def auto_crop(img, translation):
     xBounds = [min(translation[0][0], translation[1][0]), max(translation[0][0], translation[1][0])]
     yBounds = [min(translation[0][1], translation[1][1]), max(translation[0][1], translation[1][1])]
     return img[:, yBounds[0]:yBounds[1], xBounds[0]:xBounds[1]]
+
+def normalize(img, mode, **kwargs):
+    '''
+    Normalizes brightest and dimmest values to be 0 and 1 pre-preocessing
+    '''
+    match mode:
+        case 'gauss':
+            #This case will maximize brightness of center
+            mean = .5
+            cov = .1
+            max = 1
+            min = 0
+
+            if "mean" in kwargs:
+                mean = float(kwargs["mean"])
+            if "cov" in kwargs:
+                cov = float(kwargs["cov"])
+            x, y = np.meshgrid(np.linspace(min, max, img.shape[1:]),
+                               np.linspace(min, max, img.shape[1:]))
+            dst = np.sqrt(x**2, y**2)
+            gauss = np.exp(-(((dst-mean)**2))/(cov**2))
+            img[0] = img[0]*gauss
+            img[1] = img[1]*gauss
+            img[2] = img[2]*gauss
+            
+        case 'log':
+            #This case is best for brightness
+            pass
+        case 'buckets':
+            #This case is useful for processing.
+            pass
+
+    pass
 # Function to retrieve r, g, b planes from Prokudin-Gorskii glass plate images
 def read_strip(path):
     image = plt.imread(path) # read the input image
@@ -71,8 +104,10 @@ if __name__ == '__main__':
     #imageName = 'turkmen.tif'
     outDir = './Results/'
     #Specifying the number of levels in the image pyramid
-    levels = 5
-    
+    levels = 4
+    #Specifying bounds for x and y shift
+    xShift = 25
+    yShift = 25
     #output
     finalImage = '\0'
     translation = []
@@ -92,8 +127,8 @@ if __name__ == '__main__':
             print(imageName, r.shape, "GShift: ",gShift, "rShift: ", rShift)
             # Shifting the images using the obtained shift values
             finalB = b
-            finalG = circ_shift(g, gShift)
-            finalR = circ_shift(r, rShift)
+            finalG = circ_shift(g, gShift, xShift, yShift)
+            finalR = circ_shift(r, rShift, xShift, yShift)
 
             translation = [rShift, gShift]
             # Putting together the aligned channels to form the color image
@@ -110,6 +145,9 @@ if __name__ == '__main__':
             baseImg = np.asarray([r,g,b]) #Base Data
             shape = np.asarray([3,(baseImg.shape[1]/(2**(levels-1))), (baseImg.shape[2]/(2**(levels-1)))]) #Size of smallest level
 
+            normalize(baseImg, "gauss")
+            print(np.max(r), np.max(g), np.max(b))
+            print(np.min(r), np.min(g), np.min(b))
             #get it in a range from 4->1
             #for scale in reversed(range(levels+1)[1:]):
             for step in (range(levels)[1:]):
@@ -121,8 +159,12 @@ if __name__ == '__main__':
                 #Calculate Shift
                 #print(int(25/step))
                 #We do not need to continue to search the same space as it gets larger
-                rShift = np.asarray(find_shift(rS, bS, int(20/step), int(20/step)))
-                gShift = np.asarray(find_shift(gS, bS, int(20/step), int(20/step)))
+                if step ==2:
+                    xShift = 2
+                    yShift = 2
+
+                rShift = np.asarray(find_shift(rS, bS, xShift, yShift))
+                gShift = np.asarray(find_shift(gS, bS, xShift,yShift))
                 translation = np.add(translation, [rShift, gShift])
                 # translation = np.asarray([[translation[0]+find_shift(rS, bS)],[translation[1]+find_shift(gS, bS)]])
                 print("###########################################################")
