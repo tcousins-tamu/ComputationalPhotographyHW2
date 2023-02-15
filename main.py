@@ -86,6 +86,17 @@ def auto_crop(img):
 
     return img[lowX:highX, lowY:highY, :]
 
+def translate(src_img, scale):
+    im1Mod = resize(src_img, [int(src_img.shape[0]*scale), int(src_img.shape[1]*scale)])
+    #Padding the values such that the shape remains the same after resizing
+    ax1Pad = [math.floor((src_img.shape[0]-im1Mod.shape[0])/2), math.ceil((src_img.shape[0]-im1Mod.shape[0])/2)]
+    ax2Pad = [math.floor((src_img.shape[1]-im1Mod.shape[1])/2), math.ceil((src_img.shape[1]-im1Mod.shape[1])/2)]
+    if scale<1:
+        im1Mod = np.pad(im1Mod, [ax1Pad, ax2Pad])
+    elif scale>1:
+        im1Mod = im1Mod[-1*ax1Pad[0]:ax1Pad[1], -1*ax2Pad[0]:ax2Pad[1]]
+    return im1Mod
+    
 def rotate(src_img, angle_of_rotation, pivot_point, shape_img):
 
     #1.create rotation matrix with numpy array
@@ -133,13 +144,13 @@ def auto_contrast(img, mode="gauss", **kwargs):
         output = height * math.e ** (-((img - center)**2)/(2*stdev**2))
     
     elif mode== 'log':
-        lower = 0
-        upper = 1
+        # lower = 0
+        # upper = 1
         
-        if "lower" in kwargs:
-            lower = float(kwargs["mean"])
-        if "upper" in kwargs:
-            upper = float(kwargs["cov"])
+        # if "lower" in kwargs:
+        #     lower = float(kwargs["mean"])
+        # if "upper" in kwargs:
+        #     upper = float(kwargs["cov"])
         
         output = np.clip(3.3220 * np.log10(img+1), 0, 1)
         
@@ -247,42 +258,35 @@ def find_shift(im1, im2, xShift = 20, yShift=20,  mode = "RGB"):
         for x in range(xShift*2):
             for y in range(yShift*2):
                 #We will only be doing a coarse check b/c <10* is not really noticable
-                for theta in np.linspace(-math.pi, math.pi, 36):
+                #for theta in np.linspace(-math.pi, math.pi, 36): Put 0 in front b/c we want that to be baseline
+                for theta in np.insert(np.linspace(-math.pi/2, math.pi/2, 5), 0, 0):
                     #Scalar value, this is also pretty coarse for the same reasons
-                    for scale in reversed(np.linspace(.5, 1, 10)):
+                    im1Mod = rotate(im1Mod, theta, [int(im1Bounded.shape[0]/2), int(im1Bounded.shape[1]/2)], im1Bounded.shape)
+                    for scale in reversed(np.linspace(.5, 1, 5)):
                         #If we find a scalar that makes the values better, we will apply it
-                        print(im1Bounded.shape)
-                        im1Mod = resize(im1Bounded, [int(im1Bounded.shape[0]*scale), int(im1Bounded.shape[1]*scale)])
-                        #Padding the values such that the shape remains the same after resizing
-                        ax1Pad = [np.floor(im1Bounded.shape[0]-im1Mod.shape[0]), np.ceil(im1Bounded.shape[0]-im1Mod.shape[0])]
-                        ax2Pad = [np.floor(im1Bounded.shape[1]-im1Mod.shape[1]), np.ceil(im1Bounded.shape[1]-im1Mod.shape[1])]
-                        im1Mod = np.pad(im1Mod, [ax1Pad, ax2Pad])
+                        im1Mod = translate(im1Mod, scale)
 
                         #Rotating the array
-                        im1Mod = rotate(im1Mod, theta, [int(im1Bounded.shape[0]/2), int(im1Bounded.shape[1]/2)], im1Mod.shape)
     
                         sumT = np.sum((im2[x:,y:]-circ_shift(im1Mod,[x, y])[x:,y:])**2)
                         if sumT<minSum:
                             imOut = im1Mod
                             minSum = sumT
                             xOpt, yOpt = x, y
-                            #Finer Search is Done here
-                            for thetaFine in (np.linspace(theta - 0.1745, theta + 0.1745, 20)):
+                            print("SCALE: ", scale, "THETA: ", theta)
+                            #Finer Search is Done here, thetaFine is a HUGE block
+                            for thetaFine in (np.linspace(theta - 0.1745, theta + 0.1745, 10)):
+                                im1Mod = rotate(im1Bounded, thetaFine, [int(im1Bounded.shape[0]/2), int(im1Bounded.shape[1]/2)], im1Mod.shape)
                                 for scaleFine in (np.linspace(scale-.1, scale+.1, 5)):
-
-                                    im1Mod = resize(im1Bounded, [int(im1Bounded.shape[0]*scaleFine), int(im1Bounded.shape[1]*scaleFine)])
-                                    #Padding the values such that the shape remains the same after resizing
-                                    ax1Pad = [np.floor(im1Bounded.shape[0]-im1Mod.shape[0]), np.ceil(im1Bounded.shape[0]-im1Mod.shape[0])]
-                                    ax2Pad = [np.floor(im1Bounded.shape[1]-im1Mod.shape[1]), np.ceil(im1Bounded.shape[1]-im1Mod.shape[1])]
-                                    im1Mod = np.pad(im1Mod, [ax1Pad, ax2Pad])
-
-                                    im1Mod = rotate(im1Mod, thetaFine, [int(im1Bounded.shape[0]/2), int(im1Bounded.shape[1]/2)], im1Mod.shape)
-                                    sumT = np.sum((im2[x:,y:]-circ_shift(im1Mod,[x, y])[x:,y:])**2)
+                                    im1Mod = translate(im1Mod, scaleFine)
+                                    sumTFine = np.sum((im2[x:,y:]-circ_shift(im1Mod,[x, y])[x:,y:])**2)
 
                                     if sumTFine<minSum:
                                         imOut = im1Mod
                                         minSum = sumT
                                         xOpt, yOpt = x, y
+                                        print("SCALE (fine): ", scaleFine, "THETA (fine): ", thetaFine)
+
         im1 = circ_shift(imOut, [xShift, yShift])
         return xOpt-xShift, yOpt-yShift
 
@@ -380,6 +384,7 @@ if __name__ == '__main__':
             #plt.imsave(outDir + imageName[:-4] + '.jpg', finalImage)
         
         elif os.path.splitext(imageName)[-1] == '.tif':
+            continue
             translation = np.zeros([2,2], int) #[[0,0], [0,0]] #rShift, gShift
             baseImg = np.asarray([r,g,b]) #Base Data
             shape = np.asarray([3,(baseImg.shape[1]/(2**(levels-1))), (baseImg.shape[2]/(2**(levels-1)))]) #Size of smallest level
